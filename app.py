@@ -1,10 +1,13 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
-import pytesseract
 from PIL import Image
+import pytesseract
+import joblib
+import io
 
 app = Flask(__name__)
-CORS(app)
+
+model = joblib.load("model.pkl")
+vectorizer = joblib.load("vectorizer.pkl")
 
 @app.route("/")
 def home():
@@ -12,17 +15,28 @@ def home():
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    file = request.files['file']
-    img = Image.open(file)
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
 
-    text = pytesseract.image_to_string(img)
+        file = request.files['file']
 
-    if "offer" in text.lower():
-        result = "Valid Offer Letter ✅"
-    else:
-        result = "Fake ❌"
+        if file.filename == "":
+            return jsonify({"error": "Empty file"}), 400
 
-    return jsonify({
-        "text": text,
-        "result": result
-    })
+        # 🔥 FIX: read file properly
+        img_bytes = file.read()
+        img = Image.open(io.BytesIO(img_bytes))
+
+        text = pytesseract.image_to_string(img)
+
+        X = vectorizer.transform([text])
+        prediction = model.predict(X)[0]
+
+        result = "Real Offer Letter ✅" if prediction == 1 else "Fake ❌"
+
+        return jsonify({"text": text, "result": result})
+
+    except Exception as e:
+        print("ERROR:", e)
+        return jsonify({"error": str(e)}), 500
