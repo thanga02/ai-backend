@@ -1,61 +1,49 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from PIL import Image
 import pytesseract
-import joblib
 import io
 import os
+import joblib
 
 app = Flask(__name__)
+CORS(app)
 
-# 🔥 Load your AI model and vectorizer
+# --- PERMANENT FIX FOR WINDOWS OCR ---
+# 1. Ensure you have installed Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki
+# 2. Update this path to where YOU installed it:
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+# Load your AI models
 model = joblib.load("model.pkl")
 vectorizer = joblib.load("vectorizer.pkl")
 
-# 🔥 FIX: Set Tesseract executable path
-# For Linux / Render servers
-pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
-# For Windows (if testing locally), use:
-# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
-@app.route("/")
-def home():
-    return "Backend Running ✅"
-
 @app.route("/upload", methods=["POST"])
-def upload():
+def upload_image():
+    if 'image' not in request.files:
+        return jsonify({"error": "No image uploaded"}), 400
+    
+    file = request.files['image']
+    
     try:
-        # Check file presence
-        if 'file' not in request.files:
-            return jsonify({"error": "No file uploaded"}), 400
-
-        file = request.files['file']
-
-        if file.filename == "":
-            return jsonify({"error": "Empty file"}), 400
-
-        # Read file and convert to PIL Image
-        img_bytes = file.read()
-        img = Image.open(io.BytesIO(img_bytes))
-
-        # 🔥 Extract text using Tesseract
-        text = pytesseract.image_to_string(img)
-
-        if not text.strip():
-            return jsonify({"error": "No text detected in image"}), 400
-
-        # Transform text using vectorizer and predict
-        X = vectorizer.transform([text])
-        prediction = model.predict(X)[0]
-
-        result = "Real Offer Letter ✅" if prediction == 1 else "Fake ❌"
-
-        return jsonify({"text": text, "result": result})
-
+        # 1. Open the image using Pillow (PIL)
+        img = Image.open(file.stream)
+        
+        # 2. Run OCR to get text
+        extracted_text = pytesseract.image_to_string(img)
+        
+        # 3. Use your AI model (example logic)
+        # prediction = model.predict(vectorizer.transform([extracted_text]))
+        
+        return jsonify({
+            "status": "success",
+            "text": extracted_text
+        })
+        
     except Exception as e:
-        print("ERROR:", e)
-        return jsonify({"error": str(e)}), 500
+        # This will print the REAL error in your VS Code terminal
+        print(f"ERROR: {str(e)}")
+        return jsonify({"status": "failed", "error": str(e)}), 500
 
 if __name__ == "__main__":
-    # 🔥 Ensure app listens to Render's PORT
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(debug=True)
